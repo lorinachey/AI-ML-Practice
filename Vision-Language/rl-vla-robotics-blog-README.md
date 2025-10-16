@@ -31,11 +31,11 @@ TODO: Make sure sections actually link
 
 ## 1. Introduction
 
-The intersection of natural language understanding and robotic control is an exciting frontier in robotics. Advances in Large Language Models (LLMs) and Vision-Language Models (VLMs) have paved the way for Vision-Language-Action (VLA) models — systems capable of translating high-level human instructions into grounded, executable robot behaviors. At the same time, Reinforcement Learning (RL) remains the dominant framework for solving sequential decision-making problems in robotics. The convergence of these two approaches offers a promising path toward building general-purpose robotic systems that can understand human intent, reason about their environment, and adapt to novel situations.
+The intersection of natural language understanding and robotic control is an exciting, active area of research in robotics. Advances in Large Language Models (LLMs) and Vision-Language Models (VLMs) paved the way for Vision-Language-Action (VLA) models which are systems capable of translating high-level human instructions into executable robot behaviors. At the same time, Reinforcement Learning (RL) remains the dominant framework for solving sequential decision-making problems in robotics. The convergence of these two approaches offers a promising path toward building general-purpose robotic systems that can understand human intent, reason about their environment, and adapt to novel situations.
 
-When I first learned about VLAs, I imagined them as a substitute for traditional Reinforcement Learning. Consider a simple navigation task: moving a robot through a grid world to reach a goal state. In a classical RL setup, the robot would explore through trial and error, eventually learning an optimal policy from reward feedback. In contrast, I pictured a VLA-based system where I could simply instruct the robot, "Go to the green circle," and it would infer the necessary sequence of actions from visual input. This framing makes RL and VLAs seem fundamentally distinct.
+When I first learned about VLAs, I imagined them as a substitute for traditional Reinforcement Learning. Consider a simple navigation task: moving a robot through a grid world to reach a goal state. In a classical RL setup, the robot would explore through trial and error, eventually learning an optimal policy from reward feedback. In contrast, I pictured a VLA-based system where I could simply instruct the robot, “Go to the green circle,” and it would infer the necessary sequence of actions from visual input. This framing makes RL and VLAs seem fundamentally distinct.
 
-However, recent research suggests otherwise. RL and VLAs are used in combination in many ways, from the use of RL during pre-training and supervised fine-tuning to hierarchical control stacks in autonomous navigation. What began as a comparison between two seemingly distinct paradigms became an exploration of their interconnected use cases. In this post, we'll examine how RL and VLA models complement each other in addressing core challenges in robotics, focusing on the theoretical foundations and practical integration strategies that enable robots to combine semantic understanding with low-level adaptive control.
+However, recent research suggests otherwise. RL and VLAs are used in combination in many ways, from the use of RL during pre-training and supervised fine-tuning to hierarchical control stacks in autonomous navigation. What began as a comparison between two seemingly distinct paradigms became an exploration of their interconnected use cases. In this post, we’ll examine how RL and VLA models complement each other in addressing core challenges in robotics, focusing on the theoretical foundations and practical integration strategies that enable robots to combine semantic understanding with low-level adaptive control.
 
 ## 2. Foundations
 
@@ -83,6 +83,11 @@ In contrast, Vision-Language-Action (VLA) models emerge from the foundation mode
 * **Action modules** map internal representations into motor commands, joint torques, or discrete control primitives.
 
 In a VLA, these components are often connected through a shared embedding space or a transformer-based architecture that fuses multimodal information. This enables the system to interpret instructions such as *"Pick up the red cube and place it on the blue block"* and produce a coherent sequence of actions grounded in visual context.
+
+<div align="center">
+  <img src="images/open-vla-diagram.png" width="70%" alt="OpenVLA Architecture Diagram">
+  <p><em>Figure 1: OpenVLA architecture showing the integration of vision encoders, language models, and action prediction modules. Diagram from Liu et al. [11], representing the OpenVLA model [12].</em></p>
+</div>
 
 ### 2.3 Conceptual Contrast
 
@@ -133,7 +138,10 @@ This division of labor has a practical advantage: the VLA can run at a slower ra
 
 **NaVILA [8]** is a great example of this approach in action. The VLA gets fine-tuned to output "mid-level actions" (e.g. move forward 75 centimeters) which then feed into a PPO-trained RL policy. The RL policy takes those mid-level commands and figures out the specific joint movements needed to execute them. The researchers demonstrated this on real legged robots navigating different environments based on language commands.
 
-![NaVILA High-Level Diagram](images/navila-figure-2.png)
+<div align="center">
+  <img src="images/navila-figure-2.png" width="70%" alt="NaVILA High-Level Diagram">
+  <p><em>Figure 2: NaVILA hierarchical architecture. The VLA generates mid-level actions (e.g., waypoints) that are executed by a low-level RL policy trained with PPO. From Cheng et al. [8].</em></p>
+</div>
 
 **IRL-VLA [9]** applies a similar hierarchical idea to autonomous driving, using a three-stage approach:
 1. Pretrain a VLA policy through imitation learning
@@ -185,4 +193,8 @@ By carefully integrating these approaches whether through direct RL fine-tuning 
 9. Jiang, A., Gao, Y., Wang, Y., et al. (2025). IRL-VLA: Training a Vision-Language-Action Policy via Reward World Model. *arXiv preprint*. [arXiv:2508.06571](https://arxiv.org/abs/2508.06571)
 
 10. Zhai, S., Zhang, Q., Zhang, T., et al. (2025). A Vision-Language-Action-Critic Model for Robotic Real-World Reinforcement Learning. *arXiv preprint*. [arXiv:2509.15937](https://arxiv.org/abs/2509.15937)
+
+11. Liu, J., Gao, F., Wei, B., Chen, X., Liao, Q., Wu, Y., Yu, C., & Wang, Y. (2025). What Can RL Bring to VLA Generalization? An Empirical Study. *arXiv preprint*. [arXiv:2505.19789](https://arxiv.org/abs/2505.19789)
+
+12. Kim, M. J., Pertsch, K., Karamcheti, S., Xiao, T., Balakrishna, A., Nair, S., Rafailov, R., Foster, E., Lam, G., Sanketi, P., et al. (2024). OpenVLA: An Open-Source Vision-Language-Action Model. *arXiv preprint*. [arXiv:2406.09246](https://arxiv.org/abs/2406.09246)
 
