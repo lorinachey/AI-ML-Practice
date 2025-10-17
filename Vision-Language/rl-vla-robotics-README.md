@@ -75,7 +75,7 @@ where $A^\pi(s, a) = Q^\pi(s, a) - V^\pi(s)$ is the advantage function, measurin
 
 Modern deep RL algorithms leverage neural networks to approximate these functions in high-dimensional spaces. **Proximal Policy Optimization (PPO)** [2] is an on-policy algorithm that uses neural networks to represent both the policy $\pi_\theta(a|s)$ and value function $V_\phi(s)$, updating them through clipped policy gradients to ensure stable learning. **Soft Actor-Critic (SAC)** [1] is an off-policy actor-critic method that simultaneously learns a policy $\pi_\theta$ and Q-function $Q_\phi$ while maximizing both expected return and entropy. **Group Relative Policy Optimization (GRPO)** [3] is a policy gradient method that leverages group-based relative comparisons to improve learning efficiency and has been used for fine-tuning large pretrained models. These are just a few examples of RL algorithms. There are many more!
 
-Many of these RL algorithms have been successfully applied to robotic control because they can learn directly from high-dimensional inputs (like images) and handle continuous action spaces. However, RL can still suffer from sample inefficiency, reward engineering challenges, and limited generalization to novel tasks or domains—challenges. It's possible that VLA models may help address these issues.
+Many of these RL algorithms have been successfully applied to robotic control because they can learn directly from high-dimensional inputs (like images) and handle continuous action spaces. However, RL can still suffer from sample inefficiency, reward engineering challenges, and limited generalization to novel tasks or new domains. It's possible that VLA models may help address these issues.
 
 ### 2.2 Vision-Language-Action Models
 
