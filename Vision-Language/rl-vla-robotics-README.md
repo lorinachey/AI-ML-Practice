@@ -73,9 +73,9 @@ $$\nabla_\theta J(\pi_\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t
 
 where $A^\pi(s, a) = Q^\pi(s, a) - V^\pi(s)$ is the advantage function, measuring how much better action $a$ is compared to the average action in state $s$.
 
-Modern deep RL algorithms leverage neural networks to approximate these functions in high-dimensional spaces. **Proximal Policy Optimization (PPO)** [2] is an on-policy algorithm that uses neural networks to represent both the policy $\pi_\theta(a|s)$ and value function $V_\phi(s)$, updating them through clipped policy gradients to ensure stable learning. **Soft Actor-Critic (SAC)** [1] is an off-policy actor-critic method that simultaneously learns a policy $\pi_\theta$ and Q-function $Q_\phi$ while maximizing both expected return and entropy, encouraging exploration. **Group Relative Policy Optimization (GRPO)** [3] is a policy gradient method that leverages group-based relative comparisons to improve learning efficiency and has been used for fine-tuning large pretrained models. These are just a few examples of RL algorithms. There are many more!
+Modern deep RL algorithms leverage neural networks to approximate these functions in high-dimensional spaces. **Proximal Policy Optimization (PPO)** [2] is an on-policy algorithm that uses neural networks to represent both the policy $\pi_\theta(a|s)$ and value function $V_\phi(s)$, updating them through clipped policy gradients to ensure stable learning. **Soft Actor-Critic (SAC)** [1] is an off-policy actor-critic method that simultaneously learns a policy $\pi_\theta$ and Q-function $Q_\phi$ while maximizing both expected return and entropy. **Group Relative Policy Optimization (GRPO)** [3] is a policy gradient method that leverages group-based relative comparisons to improve learning efficiency and has been used for fine-tuning large pretrained models. These are just a few examples of RL algorithms. There are many more!
 
-Many of these algorithms have been successfully applied to robotic control because they can learn directly from high-dimensional inputs (like images) and handle continuous action spaces. However, RL can still suffer from sample inefficiency, reward engineering challenges, and limited generalization to novel tasks or domains—challenges. It's possible that VLA models may help address these issues.
+Many of these RL algorithms have been successfully applied to robotic control because they can learn directly from high-dimensional inputs (like images) and handle continuous action spaces. However, RL can still suffer from sample inefficiency, reward engineering challenges, and limited generalization to novel tasks or domains—challenges. It's possible that VLA models may help address these issues.
 
 ### 2.2 Vision-Language-Action Models
 
@@ -85,7 +85,7 @@ Vision-Language-Action (VLA) models emerge from the foundation model paradigm. T
 * **Language encoders/decoders** (e.g., Transformers, LLMs) process textual inputs or instructions.
 * **Action modules** map internal representations into motor commands, joint torques, or discrete control primitives.
 
-In a VLA, these components are often connected through a shared embedding space or a transformer-based architecture that fuses multimodal information. This enables the system to interpret instructions such as *“Pick up the red cube and place it on the blue block”* and produce a coherent sequence of actions. There are many different action token representations, but for the sake of this post just envision directly outputting continuous robotics controls. For an example, see Figure 1 which shows how image and text are input into the VLA which then outputs a vector of robot controls for a gripper.
+In a VLA, these components are often connected through a shared embedding space or a transformer-based architecture that fuses multimodal information. This enables the system to interpret instructions such as *“Pick up the red cube and place it on the blue block”* and produce a coherent sequence of actions. There are many different action token representations, but for the sake of this post just envision directly outputting robotics controls. For an example, see Figure 1 which shows how image and text are input into the VLA which then outputs a vector of robot controls for a gripper.
 
 <div align="center">
   <img src="images/open-vla-diagram.png" width="70%" alt="OpenVLA Architecture Diagram">
@@ -105,15 +105,15 @@ In a VLA, these components are often connected through a shared embedding space 
 
 ### 2.4 Toward Integration
 
-While these paradigms originated separately, current research explores how to combine them for enhancing robot capabilities. RL provides a mechanism for adaptive control and feedback-driven learning, while VLAs supply semantic priors and contextual understanding. It's hypothesized that integrating the two will enable robots to act optimally AND also understand what they are doing and why.
+While these approaches originated separately, current research explores how to combine them for enhancing robot capabilities. RL provides a mechanism for adaptive control and feedback-driven learning, while VLAs supply semantic priors and contextual understanding. It's hypothesized that integrating the two will enable robots to act optimally and also understand what they are doing and why.
 
 ## 3. Where RL Meets VLA
 
-The combination of Reinforcement Learning with Vision-Language-Action models is still an active area of research, but several promising strategies have emerged. In this section, we'll explore two main approaches: fine-tuning VLAs with RL and using hierarchical architectures that combine both methods.
+The combination of Reinforcement Learning with Vision-Language-Action models is an active area of research and several promising strategies have emerged. In this section, we'll explore two main approaches: fine-tuning VLAs with RL and hierarchical architectures that combine both.
 
 ### 3.1 RL Fine-Tuning of VLA Models
 
-VLA models are great at generalizing to new situations, but they can fall short when tasks demand high precision think contact-rich manipulation like inserting a peg into a hole, or tasks where exact positioning matters. This is where RL fine-tuning comes in, allowing us to directly optimize the VLA policy using task-specific rewards.
+VLA models have shown promise generalizing to new situations, but they can fall short when tasks demand high precision think contact-rich manipulation or tasks where exact positioning matters like low-level joint control. This is where RL fine-tuning comes in, allowing us to directly optimize the VLA policy using task-specific rewards.
 
 Several recent papers have shown different ways to fine-tune VLAs with RL:
 
@@ -121,11 +121,11 @@ Several recent papers have shown different ways to fine-tune VLAs with RL:
 
 **iRe-VLA [6]** tackles one of the practical challenges: direct RL fine-tuning can be computationally expensive and unstable. Their solution is an iterative framework that alternates between RL updates and supervised learning, in an effort to get the benefits of both approaches.
 
-The main challenge here is a balancing act: you want to improve performance on specific tasks without losing the broad generalization that makes VLAs useful in the first place. Techniques like regularization (keeping the policy close to the pretrained one) or multi-task RL help maintain this balance.
+The main challenge here is a balancing performance improvements on specific tasks without losing the broad generalization that makes VLAs useful in the first place. Too much fine-tuning and the model risks catastrophic forgetting. Not enough fine-tuning and the model will be unable to perform well on the specified robotics specific tasks.
 
 ### 3.2 Hierarchical Architectures
 
-Another powerful strategy uses hierarchical architectures where VLA models and RL work at different levels of abstraction.
+Another strategy uses hierarchical architectures where VLA models and RL work at different levels of abstraction.
 
 One approach is to separate high-level planning and low-level control:
 
@@ -166,9 +166,9 @@ The integration of VLA models and RL has enabled capabilities in several robotic
 
 ## 5. Conclusion
 
-Integrating Vision-Language-Action models and Reinforcement Learning is promising for robotic sequential decision making. VLA models provide semantic understanding, broad generalization, and efficient learning from diverse offline data. RL contributes adaptive optimization, fine grained control, and the ability to discover novel behaviors through environmental interaction.
+Integrating Vision-Language-Action models and Reinforcement Learning is a promising direction for improving robot capabilities. VLA models provide semantic understanding, broad generalization, and efficient learning from diverse offline data. RL contributes adaptive optimization, fine grained control, and the ability to discover novel behaviors through environmental interaction.
 
-By carefully integrating these approaches whether through direct RL fine-tuning or hierarchical architectures, we can build robotic systems that combine the semantic richness of large-scale pre-training with the adaptability and optimality of reinforcement learning. As these methods mature and scale, we move closer to more capable robots that can understand natural language instructions, reason about their environment through visual perception, and continuously improve their capabilities through experience.
+By carefully integrating these approaches whether through direct RL fine-tuning or hierarchical architectures, we can build robotic systems that combine the semantic richness of large-scale pre-training with RL's ability to produce precise low-level control. As these methods mature and scale, we move closer to more capable robots that can understand natural language instructions, reason about their environment through visual perception, and continuously improve their capabilities through experience.
 
 
 ## 6. References
