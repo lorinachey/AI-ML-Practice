@@ -7,8 +7,8 @@
 This directory contains scripts for training and deploying reinforcement learning policies across different physics simulators, specifically transferring policies trained in NVIDIA Isaac Lab to MuJoCo 3.x. This work demonstrates cross-simulator policy transfer for legged locomotion on the ANYmal-C quadruped robot.
 
 <p align="center">
-  <img src="images/AnyMalC-IsaacSim-2025-10-23-17-22-32.png" alt="IsaacLab policy training" width="320"/>
-  <img src="images/AnyMalC-Mujoco-2025-10-23-17-23-21.png" alt="Deployed in MuJoCo" width="320"/>
+  <img src="images/AnyMalC-IsaacSim-2025-10-23-17-22-32.png" alt="IsaacLab policy training" width="50%"/>
+  <img src="images/AnyMalC-Mujoco-2025-10-23-17-23-21.png" alt="Deployed in MuJoCo" width="50%"/>
 </p>
 
 <p align="center">
