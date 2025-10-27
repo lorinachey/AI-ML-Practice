@@ -45,14 +45,15 @@ import time
 # --------------------------------------------------------------------------- #
 
 MODEL_PATH = "/home/lorin-cairo/Applications/mujoco-3.3.7/mujoco_menagerie/anybotics_anymal_c/scene.xml"
-POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_flat/2025-10-22_13-59-16/exported/policy.pt"
+#POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_flat/2025-10-22_13-59-16/exported/policy.pt"
+POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_rough/2025-10-06_15-44-29/exported/policy.pt"
 
-USE_HEIGHT_SCANNER = False   # False for flat policy (48D obs), True for rough (235D)
+USE_HEIGHT_SCANNER = True    # False for flat policy (48D obs), True for rough (235D)
 HEIGHT_SCANNER_RAYS = 187    # Number of height scan rays for rough terrain mode
 DECIMATION = 4               # Control frequency decimation: 200Hz sim → 50Hz control (matches Isaac Lab)
 ACTION_SCALE = 0.5           # Action scaling factor (from Isaac Lab config)
 SIM_DT = 0.005               # Simulation timestep: 0.005s = 200 Hz (matches Isaac Lab)
-SIM_TIME = 10.0              # Total simulation time in seconds
+SIM_TIME = 100.0              # Total simulation time in seconds
 VELOCITY_COMMAND = np.array([0.5, 0.0, 0.0])  # Commanded velocity: [v_x, v_y, omega_z] in m/s and rad/s
 ALPHA = 0.2                  # Low-pass filter coefficient: 0.2 = 20% new + 80% old (smoother gait)
 NUM_JOINTS = 12              # Total number of actuated joints (3 per leg × 4 legs)
@@ -235,10 +236,26 @@ with viewer.launch_passive(model, data) as v:
         # Compute relative joint positions (deviation from default pose)
         joint_pos_rel = joint_pos_isaac - ISAAC_LAB_DEFAULT_JOINTS
 
-        # Optional height scanner for rough terrain (currently using flat terrain policy)
+        # Optional height scanner for rough terrain
         if USE_HEIGHT_SCANNER:
-            height_value = np.clip(data.qpos[2] - 0.5, -1.0, 1.0)
-            height_data = np.full(HEIGHT_SCANNER_RAYS, height_value)
+            # Generate synthetic height measurements (ground-relative, not robot-relative)
+            # Assume flat ground at z=0, measure vertical distance from current base height
+            base_height = data.qpos[2]
+            ground_level = 0.0
+            
+            # Base height difference (robot base to ground)
+            nominal_height = base_height - ground_level
+            
+            # Add slight random terrain variations (±5cm) to simulate small bumps/dips
+            # Each ray gets different noise to simulate spatial variation
+            terrain_noise = np.random.uniform(-0.5, 0.5, HEIGHT_SCANNER_RAYS)
+            
+            # Height scanner returns distance from ground (positive = above ground)
+            # Subtract nominal height so 0 means "at robot height level"
+            height_data = terrain_noise  # Small variations around flat terrain
+            
+            # Clip to reasonable range (policy was trained with normalized heights)
+            height_data = np.clip(height_data, -1.0, 1.0)
         else:
             height_data = np.array([])
 
