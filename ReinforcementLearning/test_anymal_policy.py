@@ -39,6 +39,7 @@ import mujoco.viewer as viewer
 import numpy as np
 from scipy.spatial.transform import Rotation
 import time
+import csv
 
 # --------------------------------------------------------------------------- #
 #                                CONFIGURATION                                #
@@ -55,6 +56,10 @@ SIM_TIME = 100.0              # Total simulation time in seconds
 VELOCITY_COMMAND = np.array([0.5, 0.0, 0.0])  # Commanded velocity: [v_x, v_y, omega_z] in m/s and rad/s
 ALPHA = 0.2                  # Low-pass filter coefficient: 0.2 = 20% new + 80% old (smoother gait)
 NUM_JOINTS = 12              # Total number of actuated joints (3 per leg × 4 legs)
+
+# Logging configuration
+ENABLE_LOGGING = True        # Enable data logging to CSV
+LOG_FILE = "mujoco_single_robot_log.csv"  # Output CSV file for comparison with IsaacLab
 
 if USE_HEIGHT_SCANNER:
     POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_rough/2025-10-06_15-44-29/exported/policy.pt"
@@ -206,6 +211,30 @@ expected_obs_dim = 235 if USE_HEIGHT_SCANNER else 48
 print(f"\nRunning {SIM_TIME}s sim → {steps} control steps")
 print(f"Policy expects obs dim: {expected_obs_dim}")
 print("=" * 70)
+
+# Setup CSV logging
+csv_file = None
+csv_writer = None
+if ENABLE_LOGGING:
+    # Create CSV header
+    header = [
+        "step", "time",
+        "base_pos_x", "base_pos_y", "base_pos_z",
+        "base_quat_w", "base_quat_x", "base_quat_y", "base_quat_z",
+    ]
+    # Add joint positions and velocities (in MuJoCo order to match IsaacLab)
+    for i in range(NUM_JOINTS):
+        header.append(f"joint_pos_{i}")
+    for i in range(NUM_JOINTS):
+        header.append(f"joint_vel_{i}")
+    # Note: MuJoCo doesn't have direct access to contact forces without sensors
+    # You would need to add force sensors to the model for contact force logging
+    
+    csv_file = open(LOG_FILE, 'w', newline='')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(header)
+    print(f"\nLogging enabled: {LOG_FILE}")
+    print(f"CSV columns: {len(header)}\n")
 
 with viewer.launch_passive(model, data) as v:
     for control_step in range(steps):
@@ -361,11 +390,33 @@ with viewer.launch_passive(model, data) as v:
             v.sync()  # Sync viewer with data
             time.sleep(dt)
 
+        # --- Log data to CSV ---
+        if ENABLE_LOGGING and csv_writer is not None:
+            # Base position
+            base_pos = data.qpos[0:3]  # [x, y, z]
+            # Base orientation (quaternion in MuJoCo format: w, x, y, z)
+            base_quat = data.qpos[3:7]  # [w, x, y, z]
+            # Joint positions and velocities (MuJoCo order)
+            joint_pos = data.qpos[7:7+NUM_JOINTS]
+            joint_vel = data.qvel[6:6+NUM_JOINTS]
+            
+            # Build data row
+            row = [
+                control_step,
+                control_step * control_dt,
+                *base_pos.tolist(),
+                *base_quat.tolist(),
+                *joint_pos.tolist(),
+                *joint_vel.tolist(),
+            ]
+            csv_writer.writerow(row)
+
         # --- Debug every 50 control steps ---
         if control_step % 50 == 0:
             base_vel_xy = np.linalg.norm(base_lin_vel_body[:2])
             print(f"Step {control_step:04d} | Height: {data.qpos[2]:.3f} m | Vel: {base_vel_xy:.3f} m/s")
             print(f"Height scan (first 5): {height_data[:5]}")
+            print(f"Data: {data} Model: {model}")
             
             # Debug: detailed state info
             # print(f"  Ctrl (first 3): {data.ctrl[:3]}")
@@ -377,5 +428,11 @@ with viewer.launch_passive(model, data) as v:
     print("Press ENTER to close the viewer...")
     print("=" * 70)
     input()
+
+# Close CSV file
+if ENABLE_LOGGING and csv_file is not None:
+    csv_file.close()
+    print(f"\n Data logged to: {LOG_FILE}")
+    print(f" Total rows: {steps}")
 
 print(" Viewer closed.")
