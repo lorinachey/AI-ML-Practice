@@ -45,10 +45,8 @@ import time
 # --------------------------------------------------------------------------- #
 
 MODEL_PATH = "/home/lorin-cairo/Applications/mujoco-3.3.7/mujoco_menagerie/anybotics_anymal_c/scene.xml"
-#POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_flat/2025-10-22_13-59-16/exported/policy.pt"
-POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_rough/2025-10-06_15-44-29/exported/policy.pt"
 
-USE_HEIGHT_SCANNER = True    # False for flat policy (48D obs), True for rough (235D)
+USE_HEIGHT_SCANNER = False   # False for flat policy (48D obs), True for rough (235D)
 HEIGHT_SCANNER_RAYS = 187    # Number of height scan rays for rough terrain mode
 DECIMATION = 4               # Control frequency decimation: 200Hz sim → 50Hz control (matches Isaac Lab)
 ACTION_SCALE = 0.5           # Action scaling factor (from Isaac Lab config)
@@ -57,6 +55,11 @@ SIM_TIME = 100.0              # Total simulation time in seconds
 VELOCITY_COMMAND = np.array([0.5, 0.0, 0.0])  # Commanded velocity: [v_x, v_y, omega_z] in m/s and rad/s
 ALPHA = 0.2                  # Low-pass filter coefficient: 0.2 = 20% new + 80% old (smoother gait)
 NUM_JOINTS = 12              # Total number of actuated joints (3 per leg × 4 legs)
+
+if USE_HEIGHT_SCANNER:
+    POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_rough/2025-10-06_15-44-29/exported/policy.pt"
+else:
+    POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/rsl_rl/anymal_c_flat/2025-10-22_13-59-16/exported/policy.pt"
 
 # --------------------------------------------------------------------------- #
 #                                LOAD POLICY                                  #
@@ -69,7 +72,7 @@ def load_isaaclab_policy(path):
         print(" Loaded TorchScript policy")
         return policy
     except Exception as e:
-        print(f"⚠️ TorchScript load failed ({e}), trying torch.load...")
+        print(f"Warning: TorchScript load failed ({e}), trying torch.load...")
         checkpoint = torch.load(path, map_location="cpu")
         if isinstance(checkpoint, dict):
             for key in ("actor", "policy", "model_state_dict"):
@@ -175,6 +178,8 @@ else:
     print(" Initialized to lying down pose")
 
 previous_actions = np.zeros(NUM_JOINTS)
+previous_joint_vel = np.zeros(NUM_JOINTS)
+previous_torques = np.zeros(NUM_JOINTS)
 
 # Debug: print initialization info
 # print(f"Initial ctrl: {data.ctrl[:]}")
@@ -236,26 +241,72 @@ with viewer.launch_passive(model, data) as v:
         # Compute relative joint positions (deviation from default pose)
         joint_pos_rel = joint_pos_isaac - ISAAC_LAB_DEFAULT_JOINTS
 
-        # Optional height scanner for rough terrain
+        # # Optional height scanner for rough terrain (SIMULATED DATA)
+        # if USE_HEIGHT_SCANNER:
+        #     # Generate synthetic height measurements (ground-relative, not robot-relative)
+        #     # Assume flat ground at z=0, measure vertical distance from current base height
+        #     base_height = data.qpos[2]
+        #     ground_level = 0.0
+            
+        #     # Base height difference (robot base to ground)
+        #     nominal_height = base_height - ground_level
+            
+        #     # Add slight random terrain variations (±5cm) to simulate small bumps/dips
+        #     # Each ray gets different noise to simulate spatial variation
+        #     terrain_noise = np.random.uniform(-0.5, 0.5, HEIGHT_SCANNER_RAYS)
+            
+        #     # Height scanner returns distance from ground (positive = above ground)
+        #     # Subtract nominal height so 0 means "at robot height level"
+        #     height_data = terrain_noise  # Small variations around flat terrain
+            
+        #     # Clip to reasonable range (policy was trained with normalized heights)
+        #     height_data = np.clip(height_data, -1.0, 1.0)
         if USE_HEIGHT_SCANNER:
-            # Generate synthetic height measurements (ground-relative, not robot-relative)
-            # Assume flat ground at z=0, measure vertical distance from current base height
-            base_height = data.qpos[2]
-            ground_level = 0.0
-            
-            # Base height difference (robot base to ground)
-            nominal_height = base_height - ground_level
-            
-            # Add slight random terrain variations (±5cm) to simulate small bumps/dips
-            # Each ray gets different noise to simulate spatial variation
-            terrain_noise = np.random.uniform(-0.5, 0.5, HEIGHT_SCANNER_RAYS)
-            
-            # Height scanner returns distance from ground (positive = above ground)
-            # Subtract nominal height so 0 means "at robot height level"
-            height_data = terrain_noise  # Small variations around flat terrain
-            
-            # Clip to reasonable range (policy was trained with normalized heights)
-            height_data = np.clip(height_data, -1.0, 1.0)
+            # --- Real Height Scanner via MuJoCo Raycasting ---
+            base_pos = data.qpos[0:3].copy()
+            base_quat = data.qpos[3:7]
+            R_wb = Rotation.from_quat([base_quat[1], base_quat[2], base_quat[3], base_quat[0]]).as_matrix()
+
+            # Define ray origins and directions in local (body) frame
+            # Rays form a circle under the robot + one in the center (like Isaac Lab)
+            radius = 0.4  # scanner radius [m]
+            angles = np.linspace(0, 2*np.pi, HEIGHT_SCANNER_RAYS, endpoint=False)
+            origins_local = np.stack([
+                radius * np.cos(angles),
+                radius * np.sin(angles),
+                np.zeros_like(angles)
+            ], axis=1)
+
+            # Direction (in local frame): straight down
+            dirs_local = np.tile(np.array([0, 0, -1.0]), (HEIGHT_SCANNER_RAYS, 1))
+
+            height_data = np.zeros(HEIGHT_SCANNER_RAYS)
+            for i in range(HEIGHT_SCANNER_RAYS):
+                origin_world = base_pos + R_wb @ origins_local[i]
+                direction_world = R_wb @ dirs_local[i]
+
+                # Cast ray into scene
+                geom_id_out = np.array([-1], dtype=np.int32)
+                geomgroup = np.zeros(6, dtype=np.uint8)  # include all geom groups
+                dist = mujoco.mj_ray(model, data,
+                                    origin_world, direction_world,
+                                    geomgroup,
+                                    1,    # flg_static: 1 = collide with static geoms
+                                    -1,   # bodyexclude: -1 = don't exclude any body
+                                    geom_id_out)
+                geom_id = geom_id_out[0]
+
+                # If no hit, assign max range (say 2m below robot)
+                if dist < 0 or dist > 2.0:
+                    dist = 2.0
+
+                # Convert to "height difference": positive = ground closer than nominal base height
+                # Compute point of contact height (base_z - dist along direction z)
+                ground_z = origin_world[2] + direction_world[2] * dist
+                height_data[i] = ground_z - base_pos[2]  # relative to base height
+
+            # Clip to normalized range (as in Isaac Lab)
+            height_data = np.clip(height_data, -2.0, 2.0)
         else:
             height_data = np.array([])
 
@@ -314,6 +365,8 @@ with viewer.launch_passive(model, data) as v:
         if control_step % 50 == 0:
             base_vel_xy = np.linalg.norm(base_lin_vel_body[:2])
             print(f"Step {control_step:04d} | Height: {data.qpos[2]:.3f} m | Vel: {base_vel_xy:.3f} m/s")
+            print(f"Height scan (first 5): {height_data[:5]}")
+            
             # Debug: detailed state info
             # print(f"  Ctrl (first 3): {data.ctrl[:3]}")
             # print(f"  Qpos joints (first 3): {data.qpos[7:10]}")
