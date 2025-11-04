@@ -44,6 +44,14 @@ import csv
 # --------------------------------------------------------------------------- #
 #                                CONFIGURATION                                #
 # --------------------------------------------------------------------------- #
+# These parameters match IsaacLab AnymalCFlatEnvCfg:
+#   - sim.dt = 1/200 (0.005s = 200Hz)
+#   - decimation = 4 (control at 50Hz)
+#   - action_scale = 0.5
+#   - static_friction = 1.0
+#   - dynamic_friction = 1.0
+#   - restitution = 0.0
+# --------------------------------------------------------------------------- #
 
 MODEL_PATH = "/home/lorin-cairo/Applications/mujoco-3.3.7/mujoco_menagerie/anybotics_anymal_c/scene.xml"
 
@@ -52,8 +60,18 @@ HEIGHT_SCANNER_RAYS = 187    # Number of height scan rays for rough terrain mode
 DECIMATION = 4               # Control frequency decimation: 200Hz sim → 50Hz control (matches Isaac Lab)
 ACTION_SCALE = 0.5           # Action scaling factor (from Isaac Lab config)
 SIM_DT = 0.005               # Simulation timestep: 0.005s = 200 Hz (matches Isaac Lab)
-SIM_TIME = 100.0              # Total simulation time in seconds
-VELOCITY_COMMAND = np.array([0.5, 0.0, 0.0])  # Commanded velocity: [v_x, v_y, omega_z] in m/s and rad/s
+SIM_TIME = 48.0              # Total simulation time in seconds
+
+# Velocity command (INPUT to policy, not output)
+# The policy is trained to TRACK this command - it doesn't generate it
+# IMPORTANT: For fair sim-to-sim comparison, IsaacLab must use the SAME command!
+# Default IsaacLab training uses commands sampled from ranges:
+#   - lin_vel_x: [-1.0, 1.0] m/s
+#   - lin_vel_y: [-1.0, 1.0] m/s  
+#   - ang_vel_z: [-1.0, 1.0] rad/s
+# For deterministic comparison, we use a fixed forward command:
+VELOCITY_COMMAND = np.array([0.5, 0.0, 0.0])  # [v_x, v_y, omega_z] in m/s and rad/s
+
 ALPHA = 0.2                  # Low-pass filter coefficient: 0.2 = 20% new + 80% old (smoother gait)
 NUM_JOINTS = 12              # Total number of actuated joints (3 per leg × 4 legs)
 
@@ -89,6 +107,20 @@ policy = load_isaaclab_policy(POLICY_PATH)
 policy.eval()
 print(" Policy loaded successfully!\n")
 
+# Print configuration summary
+print("=" * 70)
+print("CONFIGURATION SUMMARY (Matching IsaacLab AnymalCFlatEnvCfg)")
+print("=" * 70)
+print(f"Simulation timestep:     {SIM_DT}s ({1/SIM_DT:.0f} Hz)")
+print(f"Control decimation:      {DECIMATION}x ({1/(SIM_DT*DECIMATION):.0f} Hz control)")
+print(f"Action scale:            {ACTION_SCALE}")
+print(f"Simulation time:         {SIM_TIME}s")
+print(f"Velocity command:        [{VELOCITY_COMMAND[0]}, {VELOCITY_COMMAND[1]}, {VELOCITY_COMMAND[2]}] m/s, rad/s")
+print(f"Action filter (alpha):   {ALPHA}")
+print(f"Height scanner:          {'Enabled' if USE_HEIGHT_SCANNER else 'Disabled'}")
+print(f"Observation dimension:   {235 if USE_HEIGHT_SCANNER else 48}D")
+print("=" * 70 + "\n")
+
 # --------------------------------------------------------------------------- #
 #                             LOAD MUJOCO MODEL                               #
 # --------------------------------------------------------------------------- #
@@ -100,6 +132,46 @@ data = mujoco.MjData(model)
 model.opt.timestep = SIM_DT
 model.opt.gravity[:] = [0, 0, -9.81]
 model.opt.integrator = mujoco.mjtIntegrator.mjINT_EULER
+
+# Find foot geom IDs for contact force extraction
+# ANYmal-C feet are spherical geoms (size=0.03) at the end of each shank
+# They're part of bodies: LF_SHANK, RF_SHANK, LH_SHANK, RH_SHANK
+foot_body_names = ["LF_SHANK", "RF_SHANK", "LH_SHANK", "RH_SHANK"]
+foot_geom_ids = []
+
+for body_name in foot_body_names:
+    try:
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        # Find spherical geoms belonging to this body (foot geoms are spheres with size ~0.03)
+        for geom_id in range(model.ngeom):
+            if model.geom_bodyid[geom_id] == body_id:
+                # Check if it's a sphere (type 2) and has priority=1 (foot geom)
+                if model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_SPHERE:
+                    if model.geom_priority[geom_id] == 1:  # Foot geoms have priority=1
+                        foot_geom_ids.append(geom_id)
+                        break
+    except Exception as e:
+        print(f"[WARN] Could not find foot geom for body {body_name}: {e}")
+
+print(f"[INFO] Found {len(foot_geom_ids)} foot geom IDs: {foot_geom_ids}")
+print(f"[INFO] Foot friction values (from XML):")
+for idx, geom_id in enumerate(foot_geom_ids):
+    print(f"       Foot {idx} (geom_id={geom_id}): {model.geom_friction[geom_id]}")
+
+# TEST ONLY: Set foot friction to match IsaacLab config (Result: AnyMal faceplants)
+# IsaacLab uses: static_friction=1.0, dynamic_friction=1.0, restitution=0.0
+# for foot_geom_id in foot_geom_ids:
+#     # Set friction (sliding, torsional, rolling) - ONLY for foot geoms
+#     model.geom_friction[foot_geom_id, 0] = 1.0  # sliding friction (IsaacLab config, XML default is 0.8)
+#     model.geom_friction[foot_geom_id, 1] = 0.005  # torsional friction
+#     model.geom_friction[foot_geom_id, 2] = 0.0001  # rolling friction
+#     # Set solref and solimp for contact dynamics
+#     model.geom_solref[foot_geom_id, 0] = 0.02  # time constant for soft contact
+#     model.geom_solref[foot_geom_id, 1] = 1.0   # damping ratio
+
+
+print(f"[INFO] Updated friction for {len(foot_geom_ids)} foot geoms to match IsaacLab (1.0)")
+print(f"       Other geoms retain their XML-specified friction values")
 
 print("=" * 70)
 print("MUJOCO MODEL INFO")
@@ -191,6 +263,46 @@ previous_torques = np.zeros(NUM_JOINTS)
 # print(f"Initial qpos (joints): {data.qpos[7:19]}")
 
 # --------------------------------------------------------------------------- #
+#                         CONTACT FORCE EXTRACTION                            #
+# --------------------------------------------------------------------------- #
+
+def extract_foot_contact_forces(model, data, foot_geom_ids):
+    """
+    Extract contact forces for each foot from MuJoCo contact data.
+    Uses MuJoCo's mj_contactForce to get accurate contact forces.
+    
+    Returns:
+        np.array: (4, 3) array of contact forces [fx, fy, fz] for each foot
+                  Order: [LF, RF, LH, RH]
+    """
+    foot_forces = np.zeros((len(foot_geom_ids), 3))
+    
+    # Iterate through all active contacts
+    for i in range(data.ncon):
+        contact = data.contact[i]
+        
+        # Check if either geom in contact is a foot
+        for foot_idx, foot_geom_id in enumerate(foot_geom_ids):
+            if contact.geom1 == foot_geom_id or contact.geom2 == foot_geom_id:
+                # Use MuJoCo's contact force calculation
+                # This returns forces in contact frame: [normal, tangent1, tangent2, tor1, tor2, tor3]
+                c_array = np.zeros(6, dtype=np.float64)
+                mujoco.mj_contactForce(model, data, i, c_array)
+                
+                # Get contact frame (columns are [normal, tangent1, tangent2])
+                contact_frame = contact.frame.reshape(3, 3)
+                
+                # Transform contact forces from contact frame to world frame
+                # Force in contact frame: [normal, tangent1, tangent2]
+                force_contact_frame = c_array[0:3]
+                force_world = contact_frame @ force_contact_frame
+                
+                # Accumulate force for this foot (multiple contact points may exist)
+                foot_forces[foot_idx] += force_world
+    
+    return foot_forces
+
+# --------------------------------------------------------------------------- #
 #                              MAIN SIMULATION LOOP                           #
 # --------------------------------------------------------------------------- #
 # Control flow each step:
@@ -227,8 +339,11 @@ if ENABLE_LOGGING:
         header.append(f"joint_pos_{i}")
     for i in range(NUM_JOINTS):
         header.append(f"joint_vel_{i}")
-    # Note: MuJoCo doesn't have direct access to contact forces without sensors
-    # You would need to add force sensors to the model for contact force logging
+    # Add contact forces for each foot [LF, RF, LH, RH]
+    foot_names = ["LF", "RF", "LH", "RH"]
+    for foot_name in foot_names:
+        for axis in ["x", "y", "z"]:
+            header.append(f"contact_force_{foot_name}_{axis}")
     
     csv_file = open(LOG_FILE, 'w', newline='')
     csv_writer = csv.writer(csv_file)
@@ -400,6 +515,9 @@ with viewer.launch_passive(model, data) as v:
             joint_pos = data.qpos[7:7+NUM_JOINTS]
             joint_vel = data.qvel[6:6+NUM_JOINTS]
             
+            # Extract contact forces for all feet
+            foot_contact_forces = extract_foot_contact_forces(model, data, foot_geom_ids)
+            
             # Build data row
             row = [
                 control_step,
@@ -408,6 +526,7 @@ with viewer.launch_passive(model, data) as v:
                 *base_quat.tolist(),
                 *joint_pos.tolist(),
                 *joint_vel.tolist(),
+                *foot_contact_forces.flatten().tolist(),  # Flatten (4, 3) to 12 values
             ]
             csv_writer.writerow(row)
 
@@ -415,10 +534,10 @@ with viewer.launch_passive(model, data) as v:
         if control_step % 50 == 0:
             base_vel_xy = np.linalg.norm(base_lin_vel_body[:2])
             print(f"Step {control_step:04d} | Height: {data.qpos[2]:.3f} m | Vel: {base_vel_xy:.3f} m/s")
-            print(f"Height scan (first 5): {height_data[:5]}")
-            print(f"Data: {data} Model: {model}")
             
             # Debug: detailed state info
+            # print(f"Data: {data} Model: {model}")
+            # print(f"Height scan (first 5): {height_data[:5]}")
             # print(f"  Ctrl (first 3): {data.ctrl[:3]}")
             # print(f"  Qpos joints (first 3): {data.qpos[7:10]}")
             # print(f"  Joint pos error (first 3): {target_joint_pos_mujoco[:3] - data.qpos[7:10]}")

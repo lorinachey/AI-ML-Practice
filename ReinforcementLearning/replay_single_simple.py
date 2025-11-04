@@ -3,8 +3,6 @@
 Simple single robot replay script for IsaacLab policies with data logging.
 This is a minimal script based on the play.py structure.
 
-NOTE: this script must be run from the isaaclab conda environment with access to isaaclab.
-
 Usage:
     python replay_single_simple.py --checkpoint /path/to/policy.pt --num_steps 1000
 """
@@ -112,12 +110,23 @@ def main():
         env_cfg.curriculum = None
         print(f"[INFO] Disabled curriculum")
     
-    # Check for command manager that might trigger resets
+    # Configure command manager for deterministic comparison
+    # IMPORTANT: For fair sim-to-sim comparison with MuJoCo, use FIXED velocity command
     if hasattr(env_cfg, 'commands') and hasattr(env_cfg.commands, 'base_velocity'):
-        # Set very long command resampling time
+        # Set very long command resampling time to prevent resets
         if hasattr(env_cfg.commands.base_velocity, 'resampling_time_range'):
             env_cfg.commands.base_velocity.resampling_time_range = (10000.0, 10000.0)
-            print(f"[INFO] Extended command resampling time to prevent mid-episode resets")
+        
+        # Set fixed velocity command to match MuJoCo script: [0.5, 0.0, 0.0]
+        # This ensures both simulators use identical commands for fair comparison
+        if hasattr(env_cfg.commands.base_velocity, 'ranges'):
+            # Set narrow ranges around desired command (effectively fixed)
+            env_cfg.commands.base_velocity.ranges.lin_vel_x = (0.5, 0.5)
+            env_cfg.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+            env_cfg.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
+            print(f"[INFO] Fixed velocity command: [0.5, 0.0, 0.0] m/s, rad/s (matches MuJoCo)")
+        else:
+            print(f"[WARN] Could not set fixed velocity command - comparison may not be fair!")
     
     # Create environment with config
     env = gym.make(task_name, cfg=env_cfg)
@@ -129,6 +138,16 @@ def main():
     
     print(f"[INFO] Robot joints: {robot.num_joints}")
     print(f"[INFO] Device: {device}")
+    
+    # Get foot body indices for contact force logging
+    if contact_sensor is not None:
+        feet_ids, feet_names = contact_sensor.find_bodies(".*FOOT")
+        print(f"[INFO] Found {len(feet_ids[0])} feet: {feet_names}")
+        # Flatten to get body indices (shape is (num_envs, num_bodies))
+        feet_body_indices = feet_ids[0].cpu().tolist()  # Use first env's indices
+    else:
+        print(f"[WARN] No contact sensor found - cannot log contact forces")
+        feet_body_indices = []
     
     # Load policy
     checkpoint_path = retrieve_file_path(args_cli.checkpoint)
@@ -147,6 +166,12 @@ def main():
         header.append(f"joint_pos_{i}")
     for i in range(robot.num_joints):
         header.append(f"joint_vel_{i}")
+    # Add contact forces for each foot (assuming 4 feet: LF, RF, LH, RH)
+    if contact_sensor is not None and len(feet_body_indices) > 0:
+        foot_names = ["LF", "RF", "LH", "RH"]  # Order from find_bodies(".*FOOT")
+        for foot_name in foot_names[:len(feet_body_indices)]:
+            for axis in ["x", "y", "z"]:
+                header.append(f"contact_force_{foot_name}_{axis}")
     
     csv_file = open(output_path, 'w', newline='')
     csv_writer = csv.writer(csv_file)
@@ -193,6 +218,13 @@ def main():
         joint_pos = robot.data.joint_pos[0].cpu().numpy()
         joint_vel = robot.data.joint_vel[0].cpu().numpy()
         
+        # Get contact forces for feet
+        contact_forces = []
+        if contact_sensor is not None and len(feet_body_indices) > 0:
+            # Get net contact forces: shape is (num_envs, num_bodies, 3)
+            net_forces = contact_sensor.data.net_forces_w[0, feet_body_indices, :].cpu().numpy()
+            contact_forces = net_forces.flatten().tolist()  # Flatten (4, 3) to 12 values
+        
         # Detect if robot position suddenly jumped (indicating a reset)
         current_pos = base_pose[:3]
         pos_change = np.linalg.norm(current_pos - last_base_pos)
@@ -208,6 +240,7 @@ def main():
             *base_pose[3:].tolist(),  # quaternion (w, x, y, z)
             *joint_pos.tolist(),
             *joint_vel.tolist(),
+            *contact_forces,  # contact forces (if available)
         ]
         csv_writer.writerow(row)
         
