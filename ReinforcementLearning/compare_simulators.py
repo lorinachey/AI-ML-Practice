@@ -15,6 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+from datetime import datetime
 
 # Configure plotting
 plt.style.use('seaborn-v0_8-darkgrid')
@@ -49,37 +50,50 @@ def load_data(isaac_file, mujoco_file):
     # Load IsaacSim data
     try:
         df_isaac = pd.read_csv(isaac_file)
-        print(f"✓ IsaacSim: {len(df_isaac)} rows, {len(df_isaac.columns)} columns")
+        print(f"IsaacSim: {len(df_isaac)} rows, {len(df_isaac.columns)} columns")
         print(f"  Time range: {df_isaac['time'].min():.2f}s - {df_isaac['time'].max():.2f}s")
         
         # Check for contact force data
         has_contact = any('contact_force' in col for col in df_isaac.columns)
-        print(f"  Contact forces: {'✓ Available' if has_contact else '✗ Not available'}")
+        print(f"  Contact forces: {'Available' if has_contact else 'Not available'}")
     except FileNotFoundError:
-        print(f"✗ IsaacSim log not found: {isaac_file}")
+        print(f"IsaacSim log not found: {isaac_file}")
         return None, None
     
     # Load MuJoCo data
     try:
         df_mujoco = pd.read_csv(mujoco_file)
-        print(f"✓ MuJoCo: {len(df_mujoco)} rows, {len(df_mujoco.columns)} columns")
+        print(f"MuJoCo: {len(df_mujoco)} rows, {len(df_mujoco.columns)} columns")
         print(f"  Time range: {df_mujoco['time'].min():.2f}s - {df_mujoco['time'].max():.2f}s")
         
         # Check for contact force data
         has_contact = any('contact_force' in col for col in df_mujoco.columns)
-        print(f"  Contact forces: {'✓ Available' if has_contact else '✗ Not available'}")
+        print(f"  Contact forces: {'Available' if has_contact else 'Not available'}")
     except FileNotFoundError:
-        print(f"✗ MuJoCo log not found: {mujoco_file}")
+        print(f"MuJoCo log not found: {mujoco_file}")
         return None, None
     
     return df_isaac, df_mujoco
 
 
-def align_data(df_isaac, df_mujoco):
+def align_data(df_isaac, df_mujoco, flip_mujoco_y=True, start_step=None, end_step=None):
     """Align datasets to common length and extract joint data."""
     print("\n" + "="*70)
     print("ALIGNING DATA")
     print("="*70)
+    
+    # Apply step filtering if specified
+    if start_step is not None or end_step is not None:
+        start_s = start_step if start_step is not None else 0
+        end_s = end_step if end_step is not None else float('inf')
+        
+        # Filter both datasets by step number
+        df_isaac = df_isaac[(df_isaac['step'] >= start_s) & (df_isaac['step'] <= end_s)].copy()
+        df_mujoco = df_mujoco[(df_mujoco['step'] >= start_s) & (df_mujoco['step'] <= end_s)].copy()
+        
+        print(f"Step filter applied: {start_s} to {end_s}")
+        print(f"  IsaacSim: {len(df_isaac)} rows remaining ({df_isaac['time'].min():.2f}s - {df_isaac['time'].max():.2f}s)")
+        print(f"  MuJoCo: {len(df_mujoco)} rows remaining ({df_mujoco['time'].min():.2f}s - {df_mujoco['time'].max():.2f}s)")
     
     # Truncate to common length
     min_len = min(len(df_isaac), len(df_mujoco))
@@ -88,6 +102,11 @@ def align_data(df_isaac, df_mujoco):
     
     df_isaac = df_isaac.iloc[:min_len].copy()
     df_mujoco = df_mujoco.iloc[:min_len].copy()
+    
+    # Coordinate system correction: flip Y-axis for MuJoCo to match IsaacLab
+    if flip_mujoco_y:
+        print(f"Applying Y-axis sign correction to MuJoCo data (coordinate system difference)")
+        df_mujoco['base_pos_y'] = -df_mujoco['base_pos_y']
     
     # Extract joint data
     joint_pos_cols = [f"joint_pos_{i}" for i in range(12)]
@@ -153,7 +172,7 @@ def compute_statistics(isaac_joint_pos, isaac_joint_vel, mujoco_joint_pos, mujoc
     return joint_pos_diff, joint_vel_diff
 
 
-def plot_joint_positions(time, isaac_joint_pos, mujoco_joint_pos, output_dir):
+def plot_joint_positions(time, isaac_joint_pos, mujoco_joint_pos, output_dir, timestamp):
     """Plot joint position comparisons."""
     fig, axes = plt.subplots(4, 3, figsize=(18, 12))
     axes = axes.flatten()
@@ -169,13 +188,13 @@ def plot_joint_positions(time, isaac_joint_pos, mujoco_joint_pos, output_dir):
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    output_path = output_dir / "joint_positions_comparison.png"
+    output_path = output_dir / f"joint_positions_comparison_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
 
 
-def plot_joint_errors(time, joint_pos_diff, output_dir):
+def plot_joint_errors(time, joint_pos_diff, output_dir, timestamp):
     """Plot joint position errors."""
     fig, axes = plt.subplots(4, 3, figsize=(18, 12))
     axes = axes.flatten()
@@ -199,13 +218,13 @@ def plot_joint_errors(time, joint_pos_diff, output_dir):
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()
-    output_path = output_dir / "joint_position_errors.png"
+    output_path = output_dir / f"joint_position_errors_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
 
 
-def plot_joint_velocities(time, isaac_joint_vel, mujoco_joint_vel, output_dir):
+def plot_joint_velocities(time, isaac_joint_vel, mujoco_joint_vel, output_dir, timestamp):
     """Plot joint velocity comparisons."""
     fig, axes = plt.subplots(4, 3, figsize=(18, 12))
     axes = axes.flatten()
@@ -221,13 +240,13 @@ def plot_joint_velocities(time, isaac_joint_vel, mujoco_joint_vel, output_dir):
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    output_path = output_dir / "joint_velocities_comparison.png"
+    output_path = output_dir / f"joint_velocities_comparison_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
 
 
-def plot_base_position(df_isaac, df_mujoco, output_dir):
+def plot_base_position(df_isaac, df_mujoco, output_dir, timestamp):
     """Plot base position comparisons."""
     time = df_isaac['time'].values
     isaac_base_pos = df_isaac[['base_pos_x', 'base_pos_y', 'base_pos_z']].values
@@ -256,17 +275,27 @@ def plot_base_position(df_isaac, df_mujoco, output_dir):
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()
-    output_path = output_dir / "base_position_comparison.png"
+    output_path = output_dir / f"base_position_comparison_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
 
 
-def plot_contact_forces(df_isaac, df_mujoco, output_dir):
+def plot_contact_forces(df_isaac, df_mujoco, output_dir, timestamp):
     """Plot contact force comparisons."""
-    foot_names = ["LF", "RF", "LH", "RH"]
+    # Detect available foot names from the columns
+    # IsaacLab order is typically: LF, LH, RF, RH
+    # MuJoCo order is typically: LF, RF, LH, RH
+    foot_names = []
+    for potential_foot in ["LF", "LH", "RF", "RH"]:
+        if f"contact_force_{potential_foot}_z" in df_isaac.columns:
+            foot_names.append(potential_foot)
     
-    # Check if contact force columns exist in both datasets
+    if len(foot_names) == 0:
+        print(f"⚠ Skipping contact forces plot (data not available in CSV)")
+        return
+    
+    # Check if all detected foot columns exist in both datasets
     contact_cols_exist = all(
         f"contact_force_{foot}_z" in df_isaac.columns and 
         f"contact_force_{foot}_z" in df_mujoco.columns
@@ -307,13 +336,13 @@ def plot_contact_forces(df_isaac, df_mujoco, output_dir):
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()
-    output_path = output_dir / "contact_forces_comparison.png"
+    output_path = output_dir / f"contact_forces_comparison_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
 
 
-def plot_error_distribution(joint_pos_diff, output_dir):
+def plot_error_distribution(joint_pos_diff, output_dir, timestamp):
     """Plot error distribution analysis."""
     all_errors = joint_pos_diff.flatten()
     
@@ -355,13 +384,13 @@ def plot_error_distribution(joint_pos_diff, output_dir):
     axes[1].grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
-    output_path = output_dir / "error_distribution.png"
+    output_path = output_dir / f"error_distribution_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
 
 
-def plot_error_over_time(time, joint_pos_diff, output_dir):
+def plot_error_over_time(time, joint_pos_diff, output_dir, timestamp):
     """Plot error evolution over time."""
     cumulative_rms = np.sqrt(np.mean(joint_pos_diff**2, axis=1))
     cumulative_max = np.max(np.abs(joint_pos_diff), axis=1)
@@ -385,10 +414,10 @@ def plot_error_over_time(time, joint_pos_diff, output_dir):
     axes[1].fill_between(time, 0, cumulative_max, alpha=0.3)
     
     plt.tight_layout()
-    output_path = output_dir / "error_over_time.png"
+    output_path = output_dir / f"error_over_time_{timestamp}.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"✓ Saved: {output_path}")
+    print(f"Saved: {output_path}")
     
     # Divergence analysis
     initial_rms = cumulative_rms[:100].mean() if len(cumulative_rms) > 100 else cumulative_rms.mean()
@@ -402,12 +431,12 @@ def plot_error_over_time(time, joint_pos_diff, output_dir):
     if final_rms > 1.5 * initial_rms:
         print("  ⚠ WARNING: Error is diverging!")
     elif final_rms < 0.75 * initial_rms:
-        print("  ✓ Error is decreasing (convergence)")
+        print("  Error is decreasing (convergence)")
     else:
-        print("  ✓ Error remains stable")
+        print("  Error remains stable")
 
 
-def print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff):
+def print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff, flip_applied=True):
     """Print comprehensive summary report."""
     isaac_base_pos = df_isaac[['base_pos_x', 'base_pos_y', 'base_pos_z']].values
     mujoco_base_pos = df_mujoco[['base_pos_x', 'base_pos_y', 'base_pos_z']].values
@@ -425,6 +454,7 @@ def print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff):
     print(f"  Duration: {df_isaac['time'].max():.2f} seconds")
     print(f"  Steps:    {len(df_isaac)}")
     print(f"  Contact forces: {'Available' if has_contact_forces else 'Not available'}")
+    print(f"  Y-axis flip: {'Applied (MuJoCo Y → -Y)' if flip_applied else 'Not applied'}")
     
     print(f"\nJoint Position Errors:")
     pos_rms = np.sqrt((joint_pos_diff**2).mean())
@@ -459,13 +489,13 @@ def print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff):
     
     overall_rms_deg = np.rad2deg(pos_rms)
     if overall_rms_deg < 2.0:
-        print("✓ EXCELLENT: Sim-to-sim transfer is highly accurate (<2° RMS)")
+        print("EXCELLENT: Sim-to-sim transfer is highly accurate (<2° RMS)")
     elif overall_rms_deg < 5.0:
-        print("✓ GOOD: Sim-to-sim transfer shows good agreement (<5° RMS)")
+        print("GOOD: Sim-to-sim transfer shows good agreement (<5° RMS)")
     elif overall_rms_deg < 10.0:
         print("⚠ MODERATE: Notable differences between simulators (5-10° RMS)")
     else:
-        print("✗ POOR: Significant sim-to-sim gap (>10° RMS)")
+        print("POOR: Significant sim-to-sim gap (>10° RMS)")
         print("\nTroubleshooting suggestions:")
         print("  - Verify joint ordering conversion")
         print("  - Check contact/friction parameters")
@@ -483,6 +513,16 @@ def main():
                         help="MuJoCo CSV log file")
     parser.add_argument("--output-dir", type=str, default=".",
                         help="Output directory for plots")
+    parser.add_argument("--flip-mujoco-y", action="store_true", default=True,
+                        help="Flip Y-axis sign for MuJoCo to match IsaacLab coordinate system (default: True)")
+    parser.add_argument("--no-flip-mujoco-y", dest="flip_mujoco_y", action="store_false",
+                        help="Don't flip Y-axis (use if coordinate systems already match)")
+    parser.add_argument("--start-step", type=int, default=None,
+                        help="Start step for analysis. Default: 0")
+    parser.add_argument("--end-step", type=int, default=None,
+                        help="End step for analysis. Default: use all data")
+    parser.add_argument("--max-steps", type=int, default=None, dest="end_step",
+                        help="Alias for --end-step (maximum steps to analyze)")
     args = parser.parse_args()
     
     # Create output directory
@@ -496,32 +536,37 @@ def main():
     
     # Align and extract
     df_isaac, df_mujoco, isaac_joint_pos, isaac_joint_vel, mujoco_joint_pos, mujoco_joint_vel = \
-        align_data(df_isaac, df_mujoco)
+        align_data(df_isaac, df_mujoco, flip_mujoco_y=args.flip_mujoco_y, 
+                   start_step=args.start_step, end_step=args.end_step)
     
     # Compute statistics
     joint_pos_diff, joint_vel_diff = compute_statistics(
         isaac_joint_pos, isaac_joint_vel, mujoco_joint_pos, mujoco_joint_vel
     )
     
+    # Generate timestamp for all outputs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     # Generate plots
     print("\n" + "="*70)
     print("GENERATING PLOTS")
     print("="*70)
+    print(f"Timestamp: {timestamp}\n")
     
     time = df_isaac['time'].values
     
-    plot_joint_positions(time, isaac_joint_pos, mujoco_joint_pos, output_dir)
-    plot_joint_errors(time, joint_pos_diff, output_dir)
-    plot_joint_velocities(time, isaac_joint_vel, mujoco_joint_vel, output_dir)
-    plot_base_position(df_isaac, df_mujoco, output_dir)
-    plot_contact_forces(df_isaac, df_mujoco, output_dir)
-    plot_error_distribution(joint_pos_diff, output_dir)
-    plot_error_over_time(time, joint_pos_diff, output_dir)
+    plot_joint_positions(time, isaac_joint_pos, mujoco_joint_pos, output_dir, timestamp)
+    plot_joint_errors(time, joint_pos_diff, output_dir, timestamp)
+    plot_joint_velocities(time, isaac_joint_vel, mujoco_joint_vel, output_dir, timestamp)
+    plot_base_position(df_isaac, df_mujoco, output_dir, timestamp)
+    plot_contact_forces(df_isaac, df_mujoco, output_dir, timestamp)
+    plot_error_distribution(joint_pos_diff, output_dir, timestamp)
+    plot_error_over_time(time, joint_pos_diff, output_dir, timestamp)
     
     # Print summary
-    print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff)
+    print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff, flip_applied=args.flip_mujoco_y)
     
-    print(f"\n✓ All plots saved to: {output_dir.absolute()}")
+    print(f"\nAll plots saved to: {output_dir.absolute()}")
 
 
 if __name__ == "__main__":

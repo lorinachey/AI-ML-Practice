@@ -14,7 +14,7 @@ DEFAULT_POLICY_PATH = "/home/lorin-cairo/Documents/AI-ML-Practice/IsaacLab/logs/
 # Parse arguments
 parser = argparse.ArgumentParser(description="Replay policy on single robot")
 parser.add_argument("--checkpoint", type=str, default=DEFAULT_POLICY_PATH, help="Path to exported policy.pt")
-parser.add_argument("--num_steps", type=int, default=1000, help="Number of steps")
+parser.add_argument("--num_steps", type=int, default=2000, help="Number of steps")
 parser.add_argument("--output_file", type=str, default="isaaclab_log.csv", help="Output CSV file")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -30,6 +30,7 @@ import numpy as np
 import gymnasium as gym
 from pathlib import Path
 import importlib
+from datetime import datetime
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab.envs import DirectRLEnv
@@ -76,10 +77,10 @@ def main():
     control_dt = sim_dt * decimation
     required_time = args_cli.num_steps * control_dt * 1.2  # 20% buffer
     
-    # Set episode length to accommodate all steps
+    # Set episode length to accommodate all steps (use 2x buffer for safety)
     original_length = getattr(env_cfg, 'episode_length_s', None)
-    env_cfg.episode_length_s = required_time
-    print(f"[INFO] Episode length: {original_length}s -> {required_time:.1f}s (for {args_cli.num_steps} steps)")
+    env_cfg.episode_length_s = args_cli.num_steps * control_dt
+    print(f"[INFO] Episode length: {original_length}s -> {env_cfg.episode_length_s:.1f}s")
     
     # Disable all terminations to prevent early resets
     # For Direct RL envs, we need to clear the termination terms dict
@@ -110,24 +111,6 @@ def main():
         env_cfg.curriculum = None
         print(f"[INFO] Disabled curriculum")
     
-    # Configure command manager for deterministic comparison
-    # IMPORTANT: For fair sim-to-sim comparison with MuJoCo, use FIXED velocity command
-    if hasattr(env_cfg, 'commands') and hasattr(env_cfg.commands, 'base_velocity'):
-        # Set very long command resampling time to prevent resets
-        if hasattr(env_cfg.commands.base_velocity, 'resampling_time_range'):
-            env_cfg.commands.base_velocity.resampling_time_range = (10000.0, 10000.0)
-        
-        # Set fixed velocity command to match MuJoCo script: [0.5, 0.0, 0.0]
-        # This ensures both simulators use identical commands for fair comparison
-        if hasattr(env_cfg.commands.base_velocity, 'ranges'):
-            # Set narrow ranges around desired command (effectively fixed)
-            env_cfg.commands.base_velocity.ranges.lin_vel_x = (0.5, 0.5)
-            env_cfg.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
-            env_cfg.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
-            print(f"[INFO] Fixed velocity command: [0.5, 0.0, 0.0] m/s, rad/s (matches MuJoCo)")
-        else:
-            print(f"[WARN] Could not set fixed velocity command - comparison may not be fair!")
-    
     # Create environment with config
     env = gym.make(task_name, cfg=env_cfg)
     
@@ -141,13 +124,14 @@ def main():
     
     # Get foot body indices for contact force logging
     if contact_sensor is not None:
-        feet_ids, feet_names = contact_sensor.find_bodies(".*FOOT")
-        print(f"[INFO] Found {len(feet_ids[0])} feet: {feet_names}")
-        # Flatten to get body indices (shape is (num_envs, num_bodies))
-        feet_body_indices = feet_ids[0].cpu().tolist()  # Use first env's indices
+        feet_body_indices, feet_names = contact_sensor.find_bodies(".*FOOT")
+        print(f"[INFO] Found feet at indices {feet_body_indices}: {feet_names}")
+        # Extract short names (LF, LH, RF, RH) from full names (LF_FOOT, etc.)
+        foot_short_names = [name.replace("_FOOT", "") for name in feet_names]
     else:
         print(f"[WARN] No contact sensor found - cannot log contact forces")
         feet_body_indices = []
+        foot_short_names = []
     
     # Load policy
     checkpoint_path = retrieve_file_path(args_cli.checkpoint)
@@ -155,8 +139,11 @@ def main():
     policy = torch.jit.load(checkpoint_path, map_location=device)
     policy.eval()
     
-    # Setup CSV logging
-    output_path = Path(args_cli.output_file)
+    # Setup CSV logging with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Insert timestamp before file extension
+    output_file = Path(args_cli.output_file)
+    output_path = output_file.parent / f"{output_file.stem}_{timestamp}{output_file.suffix}"
     header = [
         "step", "time",
         "base_pos_x", "base_pos_y", "base_pos_z",
@@ -166,10 +153,9 @@ def main():
         header.append(f"joint_pos_{i}")
     for i in range(robot.num_joints):
         header.append(f"joint_vel_{i}")
-    # Add contact forces for each foot (assuming 4 feet: LF, RF, LH, RH)
+    # Add contact forces for each foot (order from find_bodies: LF, LH, RF, RH)
     if contact_sensor is not None and len(feet_body_indices) > 0:
-        foot_names = ["LF", "RF", "LH", "RH"]  # Order from find_bodies(".*FOOT")
-        for foot_name in foot_names[:len(feet_body_indices)]:
+        for foot_name in foot_short_names:
             for axis in ["x", "y", "z"]:
                 header.append(f"contact_force_{foot_name}_{axis}")
     
@@ -180,6 +166,15 @@ def main():
     
     # Reset and run
     obs, _ = env.reset()
+    
+    # IMPORTANT: Set fixed velocity command for deterministic comparison
+    # Direct RL envs don't use command manager, so we set _commands directly
+    # Commands are in BODY FRAME: [lin_vel_x, lin_vel_y, ang_vel_z]
+    # Set to [0.5, 0.0, 0.0] to match MuJoCo script
+    fixed_command = torch.tensor([[0.5, 0.0, 0.0]], device=device)
+    env.unwrapped._commands[:] = fixed_command
+    print(f"[INFO] Fixed velocity command: [0.5, 0.0, 0.0] m/s, rad/s in BODY FRAME (matches MuJoCo)")
+    
     dt = env.unwrapped.step_dt
     
     # Check episode length
@@ -191,6 +186,7 @@ def main():
     print(f"[INFO] Max episode length: {max_episode_length} steps")
     print(f"[INFO] Episode length config: {episode_length_s}s")
     print(f"[INFO] Total simulation time: {args_cli.num_steps * dt:.2f}s\n")
+    # print(f"[DEBUG] Env Config: {env_cfg}")
     
     reset_count = 0
     last_base_pos = robot.data.root_pose_w[0].cpu().numpy()[:3]
@@ -212,6 +208,9 @@ def main():
         if terminated or truncated:
             print(f"[WARN] Step {step}: Environment terminated={terminated}, truncated={truncated}")
             reset_count += 1
+            # Re-apply fixed command after reset
+            env.unwrapped._commands[:] = fixed_command
+            print(f"[WARN] Re-applied fixed command after reset")
         
         # Log data
         base_pose = robot.data.root_pose_w[0].cpu().numpy()

@@ -70,7 +70,7 @@ SIM_TIME = 48.0              # Total simulation time in seconds
 #   - lin_vel_y: [-1.0, 1.0] m/s  
 #   - ang_vel_z: [-1.0, 1.0] rad/s
 # For deterministic comparison, we use a fixed forward command:
-VELOCITY_COMMAND = np.array([0.5, 0.0, 0.0])  # [v_x, v_y, omega_z] in m/s and rad/s
+VELOCITY_COMMAND = np.array([1.0, 0.0, 0.0])  # [v_x, v_y, omega_z] in m/s and rad/s
 
 ALPHA = 0.2                  # Low-pass filter coefficient: 0.2 = 20% new + 80% old (smoother gait)
 NUM_JOINTS = 12              # Total number of actuated joints (3 per leg × 4 legs)
@@ -377,80 +377,56 @@ with viewer.launch_passive(model, data) as v:
         joint_pos_isaac = joint_pos_mujoco[mujoco_to_isaac_idx]
         joint_vel_isaac = joint_vel_mujoco[mujoco_to_isaac_idx]
         
-        # Debug: verify joint ordering conversion
-        # if control_step % 100 == 0:
-        #     print(f"Joint pos MuJoCo (first 3): {joint_pos_mujoco[:3]}")
-        #     print(f"Joint pos Isaac (first 3): {joint_pos_isaac[:3]}")
-        
         # Compute relative joint positions (deviation from default pose)
         joint_pos_rel = joint_pos_isaac - ISAAC_LAB_DEFAULT_JOINTS
 
-        # # Optional height scanner for rough terrain (SIMULATED DATA)
-        # if USE_HEIGHT_SCANNER:
-        #     # Generate synthetic height measurements (ground-relative, not robot-relative)
-        #     # Assume flat ground at z=0, measure vertical distance from current base height
-        #     base_height = data.qpos[2]
-        #     ground_level = 0.0
-            
-        #     # Base height difference (robot base to ground)
-        #     nominal_height = base_height - ground_level
-            
-        #     # Add slight random terrain variations (±5cm) to simulate small bumps/dips
-        #     # Each ray gets different noise to simulate spatial variation
-        #     terrain_noise = np.random.uniform(-0.5, 0.5, HEIGHT_SCANNER_RAYS)
-            
-        #     # Height scanner returns distance from ground (positive = above ground)
-        #     # Subtract nominal height so 0 means "at robot height level"
-        #     height_data = terrain_noise  # Small variations around flat terrain
-            
-        #     # Clip to reasonable range (policy was trained with normalized heights)
-        #     height_data = np.clip(height_data, -1.0, 1.0)
         if USE_HEIGHT_SCANNER:
-            # --- Real Height Scanner via MuJoCo Raycasting ---
-            base_pos = data.qpos[0:3].copy()
-            base_quat = data.qpos[3:7]
-            R_wb = Rotation.from_quat([base_quat[1], base_quat[2], base_quat[3], base_quat[0]]).as_matrix()
+            print("[WARN] Height scanner is not implemented yet in MuJoCo.")
+            # # --- Real Height Scanner via MuJoCo Raycasting ---
+            # base_pos = data.qpos[0:3].copy()
+            # base_quat = data.qpos[3:7]
+            # R_wb = Rotation.from_quat([base_quat[1], base_quat[2], base_quat[3], base_quat[0]]).as_matrix()
 
-            # Define ray origins and directions in local (body) frame
-            # Rays form a circle under the robot + one in the center (like Isaac Lab)
-            radius = 0.4  # scanner radius [m]
-            angles = np.linspace(0, 2*np.pi, HEIGHT_SCANNER_RAYS, endpoint=False)
-            origins_local = np.stack([
-                radius * np.cos(angles),
-                radius * np.sin(angles),
-                np.zeros_like(angles)
-            ], axis=1)
+            # # Define ray origins and directions in local (body) frame
+            # # Rays form a circle under the robot + one in the center (like Isaac Lab)
+            # radius = 0.4  # scanner radius [m]
+            # angles = np.linspace(0, 2*np.pi, HEIGHT_SCANNER_RAYS, endpoint=False)
+            # origins_local = np.stack([
+            #     radius * np.cos(angles),
+            #     radius * np.sin(angles),
+            #     np.zeros_like(angles)
+            # ], axis=1)
 
-            # Direction (in local frame): straight down
-            dirs_local = np.tile(np.array([0, 0, -1.0]), (HEIGHT_SCANNER_RAYS, 1))
+            # # Direction (in local frame): straight down
+            # dirs_local = np.tile(np.array([0, 0, -1.0]), (HEIGHT_SCANNER_RAYS, 1))
 
-            height_data = np.zeros(HEIGHT_SCANNER_RAYS)
-            for i in range(HEIGHT_SCANNER_RAYS):
-                origin_world = base_pos + R_wb @ origins_local[i]
-                direction_world = R_wb @ dirs_local[i]
+            # height_data = np.zeros(HEIGHT_SCANNER_RAYS)
+            # for i in range(HEIGHT_SCANNER_RAYS):
+            #     origin_world = base_pos + R_wb @ origins_local[i]
+            #     direction_world = R_wb @ dirs_local[i]
 
-                # Cast ray into scene
-                geom_id_out = np.array([-1], dtype=np.int32)
-                geomgroup = np.zeros(6, dtype=np.uint8)  # include all geom groups
-                dist = mujoco.mj_ray(model, data,
-                                    origin_world, direction_world,
-                                    geomgroup,
-                                    1,    # flg_static: 1 = collide with static geoms
-                                    -1,   # bodyexclude: -1 = don't exclude any body
-                                    geom_id_out)
-                geom_id = geom_id_out[0]
+            #     # Cast ray into scene
+            #     geom_id_out = np.array([-1], dtype=np.int32)
+            #     geomgroup = np.zeros(6, dtype=np.uint8)  # include all geom groups
+            #     dist = mujoco.mj_ray(model, data,
+            #                         origin_world, direction_world,
+            #                         geomgroup,
+            #                         1,    # flg_static: 1 = collide with static geoms
+            #                         -1,   # bodyexclude: -1 = don't exclude any body
+            #                         geom_id_out)
+            #     geom_id = geom_id_out[0]
 
-                # If no hit, assign max range (say 2m below robot)
-                if dist < 0 or dist > 2.0:
-                    dist = 2.0
+            #     # If no hit, assign max range (say 2m below robot)
+            #     if dist < 0 or dist > 2.0:
+            #         dist = 2.0
 
-                # Convert to "height difference": positive = ground closer than nominal base height
-                # Compute point of contact height (base_z - dist along direction z)
-                ground_z = origin_world[2] + direction_world[2] * dist
-                height_data[i] = ground_z - base_pos[2]  # relative to base height
+            #     # Convert to "height difference": positive = ground closer than nominal base height
+            #     # Compute point of contact height (base_z - dist along direction z)
+            #     ground_z = origin_world[2] + direction_world[2] * dist
+            #     height_data[i] = ground_z - base_pos[2]  # relative to base height
 
-            # Clip to normalized range (as in Isaac Lab)
-            height_data = np.clip(height_data, -2.0, 2.0)
+            # # Clip to normalized range (as in Isaac Lab)
+            # height_data = np.clip(height_data, -2.0, 2.0)
         else:
             height_data = np.array([])
 
@@ -476,8 +452,6 @@ with viewer.launch_passive(model, data) as v:
         # --- Policy Inference ---
         with torch.no_grad():
             raw_action = policy(obs_tensor).squeeze(0).numpy()  # Returns 12D action (Isaac Lab order)
-            # Debug: print raw policy output
-            # print(f"Raw action: {raw_action}")
 
         # Apply low-pass filter for smoother gait (reduces jitter)
         action_isaac = ALPHA * raw_action + (1 - ALPHA) * previous_actions
@@ -490,10 +464,6 @@ with viewer.launch_passive(model, data) as v:
         # Reorder from Isaac Lab format to MuJoCo format
         target_joint_pos_mujoco = isaac_to_mujoco_order(target_joint_pos_isaac)
         
-        # Debug: print target positions
-        # if control_step % 100 == 0:
-        #     print(f"Target positions (Isaac order, first 3): {target_joint_pos_isaac[:3]}")
-        #     print(f"Target positions (MuJoCo order, first 3): {target_joint_pos_mujoco[:3]}")
         
         # MuJoCo model has built-in position actuators (kp=100)
         # Pass target joint positions directly to ctrl (not torques!)
