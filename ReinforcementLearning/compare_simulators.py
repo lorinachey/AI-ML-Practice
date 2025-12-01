@@ -38,7 +38,11 @@ JOINT_NAMES_MUJOCO = [
 ]
 
 # Mapping from MuJoCo index to IsaacLab index
-MUJOCO_TO_ISAAC_IDX = [0, 4, 8, 2, 6, 10, 1, 5, 9, 3, 7, 11]
+# To convert MuJoCo data to Isaac Lab order: isaac_data = mujoco_data[:, MUJOCO_TO_ISAAC_IDX]
+# MuJoCo: [LF_HAA, LF_HFE, LF_KFE, RF_HAA, RF_HFE, RF_KFE, LH_HAA, LH_HFE, LH_KFE, RH_HAA, RH_HFE, RH_KFE]
+# Isaac:  [LF_HAA, LH_HAA, RF_HAA, RH_HAA, LF_HFE, LH_HFE, RF_HFE, RH_HFE, LF_KFE, LH_KFE, RF_KFE, RH_KFE]
+# Mapping: Isaac[i] gets value from MuJoCo[MUJOCO_TO_ISAAC_IDX[i]]
+MUJOCO_TO_ISAAC_IDX = [0, 6, 3, 9, 1, 7, 4, 10, 2, 8, 5, 11]
 
 
 def load_data(isaac_file, mujoco_file):
@@ -315,7 +319,8 @@ def plot_contact_forces(df_isaac, df_mujoco, output_dir, timestamp):
         
         # Extract Z-axis (vertical) contact force
         isaac_force_z = df_isaac[f"contact_force_{foot_name}_z"].values
-        mujoco_force_z = df_mujoco[f"contact_force_{foot_name}_z"].values
+        # Flip MuJoCo contact forces to positive (sign convention correction)
+        mujoco_force_z = -df_mujoco[f"contact_force_{foot_name}_z"].values
         
         ax.plot(time, isaac_force_z, label='IsaacSim', linewidth=1.5, alpha=0.8)
         ax.plot(time, mujoco_force_z, label='MuJoCo', linewidth=1.5, alpha=0.8, linestyle='--')
@@ -455,6 +460,7 @@ def print_summary(df_isaac, df_mujoco, joint_pos_diff, joint_vel_diff, flip_appl
     print(f"  Steps:    {len(df_isaac)}")
     print(f"  Contact forces: {'Available' if has_contact_forces else 'Not available'}")
     print(f"  Y-axis flip: {'Applied (MuJoCo Y → -Y)' if flip_applied else 'Not applied'}")
+    print(f"  Contact force sign: MuJoCo forces flipped to positive convention")
     
     print(f"\nJoint Position Errors:")
     pos_rms = np.sqrt((joint_pos_diff**2).mean())

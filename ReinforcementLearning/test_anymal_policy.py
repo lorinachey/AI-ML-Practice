@@ -76,7 +76,7 @@ ALPHA = 0.2                  # Low-pass filter coefficient: 0.2 = 20% new + 80% 
 NUM_JOINTS = 12              # Total number of actuated joints (3 per leg × 4 legs)
 
 # Logging configuration
-ENABLE_LOGGING = True        # Enable data logging to CSV
+ENABLE_LOGGING = False        # Enable data logging to CSV
 LOG_FILE = "mujoco_single_robot_log.csv"  # Output CSV file for comparison with IsaacLab
 
 if USE_HEIGHT_SCANNER:

@@ -16,6 +16,7 @@ parser = argparse.ArgumentParser(description="Replay policy on single robot")
 parser.add_argument("--checkpoint", type=str, default=DEFAULT_POLICY_PATH, help="Path to exported policy.pt")
 parser.add_argument("--num_steps", type=int, default=2000, help="Number of steps")
 parser.add_argument("--output_file", type=str, default="isaaclab_log.csv", help="Output CSV file")
+parser.add_argument("--no-logging", action="store_true", help="Disable CSV logging (just run the policy)")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -140,29 +141,32 @@ def main():
     policy.eval()
     
     # Setup CSV logging with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Insert timestamp before file extension
-    output_file = Path(args_cli.output_file)
-    output_path = output_file.parent / f"{output_file.stem}_{timestamp}{output_file.suffix}"
-    header = [
-        "step", "time",
-        "base_pos_x", "base_pos_y", "base_pos_z",
-        "base_quat_w", "base_quat_x", "base_quat_y", "base_quat_z",
-    ]
-    for i in range(robot.num_joints):
-        header.append(f"joint_pos_{i}")
-    for i in range(robot.num_joints):
-        header.append(f"joint_vel_{i}")
-    # Add contact forces for each foot (order from find_bodies: LF, LH, RF, RH)
-    if contact_sensor is not None and len(feet_body_indices) > 0:
-        for foot_name in foot_short_names:
-            for axis in ["x", "y", "z"]:
-                header.append(f"contact_force_{foot_name}_{axis}")
-    
-    csv_file = open(output_path, 'w', newline='')
-    csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(header)
-    print(f"[INFO] Logging to: {output_path}")
+    if not args_cli.no_logging:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Insert timestamp before file extension
+        output_file = Path(args_cli.output_file)
+        output_path = output_file.parent / f"{output_file.stem}_{timestamp}{output_file.suffix}"
+        header = [
+            "step", "time",
+            "base_pos_x", "base_pos_y", "base_pos_z",
+            "base_quat_w", "base_quat_x", "base_quat_y", "base_quat_z",
+        ]
+        for i in range(robot.num_joints):
+            header.append(f"joint_pos_{i}")
+        for i in range(robot.num_joints):
+            header.append(f"joint_vel_{i}")
+        # Add contact forces for each foot (order from find_bodies: LF, LH, RF, RH)
+        if contact_sensor is not None and len(feet_body_indices) > 0:
+            for foot_name in foot_short_names:
+                for axis in ["x", "y", "z"]:
+                    header.append(f"contact_force_{foot_name}_{axis}")
+        
+        csv_file = open(output_path, 'w', newline='')
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(header)
+        print(f"[INFO] Logging to: {output_path}")
+    else:
+        print(f"[INFO] CSV logging disabled")
     
     # Reset and run
     obs, _ = env.reset()
@@ -171,7 +175,7 @@ def main():
     # Direct RL envs don't use command manager, so we set _commands directly
     # Commands are in BODY FRAME: [lin_vel_x, lin_vel_y, ang_vel_z]
     # Set to [0.5, 0.0, 0.0] to match MuJoCo script
-    fixed_command = torch.tensor([[0.5, 0.0, 0.0]], device=device)
+    fixed_command = torch.tensor([[1.0, 0.0, 0.0]], device=device)
     env.unwrapped._commands[:] = fixed_command
     print(f"[INFO] Fixed velocity command: [0.5, 0.0, 0.0] m/s, rad/s in BODY FRAME (matches MuJoCo)")
     
@@ -213,45 +217,54 @@ def main():
             print(f"[WARN] Re-applied fixed command after reset")
         
         # Log data
-        base_pose = robot.data.root_pose_w[0].cpu().numpy()
-        joint_pos = robot.data.joint_pos[0].cpu().numpy()
-        joint_vel = robot.data.joint_vel[0].cpu().numpy()
-        
-        # Get contact forces for feet
-        contact_forces = []
-        if contact_sensor is not None and len(feet_body_indices) > 0:
-            # Get net contact forces: shape is (num_envs, num_bodies, 3)
-            net_forces = contact_sensor.data.net_forces_w[0, feet_body_indices, :].cpu().numpy()
-            contact_forces = net_forces.flatten().tolist()  # Flatten (4, 3) to 12 values
-        
-        # Detect if robot position suddenly jumped (indicating a reset)
-        current_pos = base_pose[:3]
-        pos_change = np.linalg.norm(current_pos - last_base_pos)
-        if pos_change > 1.0 and step > 0:  # More than 1m jump
-            print(f"[WARN] Step {step}: Robot position jumped {pos_change:.2f}m - likely a reset!")
-            print(f"        Last pos: {last_base_pos}, Current: {current_pos}")
-            reset_count += 1
-        last_base_pos = current_pos.copy()
-        
-        row = [
-            step, step * dt,
-            *base_pose[:3].tolist(),  # position
-            *base_pose[3:].tolist(),  # quaternion (w, x, y, z)
-            *joint_pos.tolist(),
-            *joint_vel.tolist(),
-            *contact_forces,  # contact forces (if available)
-        ]
-        csv_writer.writerow(row)
+        if not args_cli.no_logging:
+            base_pose = robot.data.root_pose_w[0].cpu().numpy()
+            joint_pos = robot.data.joint_pos[0].cpu().numpy()
+            joint_vel = robot.data.joint_vel[0].cpu().numpy()
+            
+            # Get contact forces for feet
+            contact_forces = []
+            if contact_sensor is not None and len(feet_body_indices) > 0:
+                # Get net contact forces: shape is (num_envs, num_bodies, 3)
+                net_forces = contact_sensor.data.net_forces_w[0, feet_body_indices, :].cpu().numpy()
+                contact_forces = net_forces.flatten().tolist()  # Flatten (4, 3) to 12 values
+            
+            # Detect if robot position suddenly jumped (indicating a reset)
+            current_pos = base_pose[:3]
+            pos_change = np.linalg.norm(current_pos - last_base_pos)
+            if pos_change > 1.0 and step > 0:  # More than 1m jump
+                print(f"[WARN] Step {step}: Robot position jumped {pos_change:.2f}m - likely a reset!")
+                print(f"        Last pos: {last_base_pos}, Current: {current_pos}")
+                reset_count += 1
+            last_base_pos = current_pos.copy()
+            
+            row = [
+                step, step * dt,
+                *base_pose[:3].tolist(),  # position
+                *base_pose[3:].tolist(),  # quaternion (w, x, y, z)
+                *joint_pos.tolist(),
+                *joint_vel.tolist(),
+                *contact_forces,  # contact forces (if available)
+            ]
+            csv_writer.writerow(row)
+        else:
+            # Still get base pose for progress display
+            base_pose = robot.data.root_pose_w[0].cpu().numpy()
         
         # Progress
         if (step + 1) % 100 == 0:
             print(f"  Step {step + 1}/{args_cli.num_steps} | Height: {base_pose[2]:.3f}m")
     
-    csv_file.close()
+    if not args_cli.no_logging:
+        csv_file.close()
+    
     env.close()
     
     print(f"\n{'='*70}")
-    print(f"[INFO] Complete! Data saved to: {output_path}")
+    if not args_cli.no_logging:
+        print(f"[INFO] Complete! Data saved to: {output_path}")
+    else:
+        print(f"[INFO] Complete! (no logging)")
     print(f"[INFO] Total resets detected: {reset_count}")
     if reset_count > 0:
         print(f"[WARN] The robot reset {reset_count} times during playback.")
