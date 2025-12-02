@@ -191,7 +191,6 @@ print("=" * 70)
 # Leg naming: LF=Left Front, RF=Right Front, LH=Left Hind, RH=Right Hind
 
 # Isaac Lab default standing pose
-# HAA: 0.0, Front HFE: 0.4, Hind HFE: -0.4, Front KFE: -0.8, Hind KFE: 0.8
 ISAAC_LAB_DEFAULT_JOINTS = np.array([
     0.0, 0.0, 0.0, 0.0,           # LF_HAA, LH_HAA, RF_HAA, RH_HAA
     0.4, -0.4, 0.4, -0.4,          # LF_HFE, LH_HFE, RF_HFE, RH_HFE  
@@ -237,22 +236,7 @@ if START_STANDING:
     mujoco.mj_forward(model, data)
     print(" Initialized to standing pose (Isaac Lab defaults)")
 else:
-    # Lying down pose (belly on ground, legs folded) - Isaac Lab order
-    lying_joints_isaac = np.array([
-        0.0, 0.0, 0.0, 0.0,        # HAA: All 0.0 (no abduction)
-        1.0, -1.0, 1.0, -1.0,       # HFE: Front legs +1.0, Hind legs -1.0 (bent inward)
-        -2.0, 2.0, -2.0, 2.0        # KFE: Front legs -2.0, Hind legs +2.0 (bent tight)
-    ])
-    lying_joints_mujoco = isaac_to_mujoco_order(lying_joints_isaac)
-    
-    data.qpos[0:3] = [0.0, 0.0, 0.35]      # Base position: x, y, z (lower height for lying)
-    data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]  # Base orientation: quaternion (w, x, y, z) - upright
-    data.qpos[7:19] = lying_joints_mujoco
-    data.qvel[:] = 0.0
-    # CRITICAL: Initialize ctrl to match qpos! (see comment above)
-    data.ctrl[:] = lying_joints_mujoco
-    mujoco.mj_forward(model, data)
-    print(" Initialized to lying down pose")
+    print("[WARN] Policy does not allow starting from laying down yet.")
 
 previous_actions = np.zeros(NUM_JOINTS)
 previous_joint_vel = np.zeros(NUM_JOINTS)

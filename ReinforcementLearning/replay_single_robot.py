@@ -1,7 +1,61 @@
 #!/usr/bin/env python3
 """
 Simple single robot replay script for IsaacLab policies with data logging.
-This is a minimal script based on the play.py structure.
+This is a minimal script based on the play.py structure. To run it, you
+need to have Isaac Lab installed and the environment variables set.
+
+Copy this file into the IsaacLab/scripts/reinforcement_learning/rsl_rl directory.
+
+Then, you can run the script with:
+    python replay_single_robot.py --checkpoint /path/to/policy.pt --num_steps 1000
+
+The script will replay the policy for the specified number of steps and save the data to a CSV file.
+The CSV file will contain the following columns:
+    - step
+    - time
+    - base_pos_x
+    - base_pos_y
+    - base_pos_z
+    - base_quat_w
+    - base_quat_x
+    - base_quat_y
+    - base_quat_z
+    - joint_pos_0
+    - joint_pos_1
+    - joint_pos_2
+    - joint_pos_3
+    - joint_pos_4
+    - joint_pos_5
+    - joint_pos_6
+    - joint_pos_7
+    - joint_pos_8
+    - joint_pos_9
+    - joint_pos_10
+    - joint_pos_11
+    - joint_vel_0
+    - joint_vel_1
+    - joint_vel_2
+    - joint_vel_3
+    - joint_vel_4
+    - joint_vel_5
+    - joint_vel_6
+    - joint_vel_7
+    - joint_vel_8
+    - joint_vel_9
+    - joint_vel_10
+    - joint_vel_11
+    - contact_force_lf_x
+    - contact_force_lf_y
+    - contact_force_lf_z
+    - contact_force_lh_x
+    - contact_force_lh_y
+    - contact_force_lh_z
+    - contact_force_rf_x
+    - contact_force_rf_y
+    - contact_force_rf_z
+    - contact_force_rh_x
+    - contact_force_rh_y
+    - contact_force_rh_z
 
 Usage:
     python replay_single_simple.py --checkpoint /path/to/policy.pt --num_steps 1000
@@ -82,36 +136,8 @@ def main():
     original_length = getattr(env_cfg, 'episode_length_s', None)
     env_cfg.episode_length_s = args_cli.num_steps * control_dt
     print(f"[INFO] Episode length: {original_length}s -> {env_cfg.episode_length_s:.1f}s")
-    
-    # Disable all terminations to prevent early resets
-    # For Direct RL envs, we need to clear the termination terms dict
-    if hasattr(env_cfg, 'terminations'):
-        # Try to access the internal dict structure
-        if hasattr(env_cfg.terminations, '__dict__'):
-            term_dict = env_cfg.terminations.__dict__
-            disabled_terms = []
-            for key, value in list(term_dict.items()):
-                if not key.startswith('_') and value is not None:
-                    disabled_terms.append(key)
-                    setattr(env_cfg.terminations, key, None)
-            print(f"[INFO] Disabled terminations: {disabled_terms}")
-        else:
-            print(f"[WARN] Could not disable terminations - unknown config structure")
-    
-    # Also try to disable events that might cause resets
-    if hasattr(env_cfg, 'events'):
-        if hasattr(env_cfg.events, 'reset_scene_to_default'):
-            env_cfg.events.reset_scene_to_default = None
-            print(f"[INFO] Disabled reset_scene_to_default event")
-        if hasattr(env_cfg.events, 'reset_robot_joints'):
-            env_cfg.events.reset_robot_joints = None
-            print(f"[INFO] Disabled reset_robot_joints event")
-    
-    # Disable curriculum if present
-    if hasattr(env_cfg, 'curriculum'):
-        env_cfg.curriculum = None
-        print(f"[INFO] Disabled curriculum")
-    
+    print(f"[INFO] Env Config: {env_cfg}")
+
     # Create environment with config
     env = gym.make(task_name, cfg=env_cfg)
     
@@ -170,6 +196,10 @@ def main():
     
     # Reset and run
     obs, _ = env.reset()
+
+    # Force episode length buffer to 0 so we don't hit timeout due to random initialization
+    if hasattr(env.unwrapped, "episode_length_buf"):
+        env.unwrapped.episode_length_buf[:] = 0
     
     # IMPORTANT: Set fixed velocity command for deterministic comparison
     # Direct RL envs don't use command manager, so we set _commands directly
@@ -177,7 +207,7 @@ def main():
     # Set to [0.5, 0.0, 0.0] to match MuJoCo script
     fixed_command = torch.tensor([[1.0, 0.0, 0.0]], device=device)
     env.unwrapped._commands[:] = fixed_command
-    print(f"[INFO] Fixed velocity command: [0.5, 0.0, 0.0] m/s, rad/s in BODY FRAME (matches MuJoCo)")
+    print(f"[INFO] Fixed velocity command: {fixed_command[0, 0]:.2f} m/s, {fixed_command[0, 1]:.2f} m/s, {fixed_command[0, 2]:.2f} rad/s in BODY FRAME (matches MuJoCo)")
     
     dt = env.unwrapped.step_dt
     
@@ -204,8 +234,7 @@ def main():
             else:
                 policy_obs = obs
             actions = policy(policy_obs)
-        
-        # Step environment (no auto-reset since we disabled terminations)
+
         obs, _, terminated, truncated, _ = env.step(actions)
         
         # Check if environment terminated or truncated
