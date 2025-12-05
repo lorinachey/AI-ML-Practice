@@ -15,7 +15,7 @@ KEY IMPLEMENTATION DETAILS:
    - Script handles reordering automatically in both directions
 
 2. Actuator Control
-   - MuJoCo model uses built-in position actuators (kp=100)
+   - MuJoCo model uses built-in position actuators
    - Must initialize data.ctrl to match initial qpos (critical!)
    - Pass target positions directly to ctrl (not torques)
 
