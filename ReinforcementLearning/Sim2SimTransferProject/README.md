@@ -9,8 +9,8 @@ This project develops a transfer learning pipeline for training low-level locomo
 The current focus is on legged locomotion for the **ANYmal-C** quadruped robot.
 
 <p align="center">
-  <img src="Sim2SimTransferProject/images-and-plots/AnyMalC-IsaacSim-2025-10-23-17-22-32.png" alt="IsaacLab policy training" width="49%"/>
-  <img src="Sim2SimTransferProject/images-and-plots/AnyMalC-Mujoco-2025-10-23-17-23-21.png" alt="Deployed in MuJoCo" width="49%"/>
+  <img src="images-and-plots/AnyMalC-IsaacSim-2025-10-23-17-22-32.png" alt="IsaacLab policy training" width="49%"/>
+  <img src="images-and-plots/AnyMalC-Mujoco-2025-10-23-17-23-21.png" alt="Deployed in MuJoCo" width="49%"/>
   <br/>
   <em>Left:</em> ANYmal-C policy training in Isaac Lab &nbsp;&nbsp;|&nbsp;&nbsp; <em>Right:</em> Deployed walking in MuJoCo
 </p>
